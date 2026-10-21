@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>校内マップ ノード編集ツール v6</title>
+<link rel="stylesheet" href="styles/map-editor.css">
+</head>
+<body>
+
+<div id="sidebar">
+<div id="sidebarFixed">
+  <h2>校内マップ ノード編集ツール v6</h2>
+
+  <div id="restoreBanner"></div>
+
+  <div class="floor-tabs" id="floorTabs"></div>
+
+  <div class="btn-row">
+    <button id="importImageBtn" class="secondary">画像を読み込む(階を追加/差し替え)</button>
+  </div>
+  <input type="file" id="importImageFile" style="display:none" accept="image/*,.svg,image/svg+xml">
+  <div class="hint" id="imageFormatHint" style="background:#eef7f0;display:none;">SVGはviewBoxから実寸を補って読み込みます。外部画像やWebフォントを参照しているSVGは表示されない場合があります。</div>
+
+  <div class="hint" id="scaleInfo"></div>
+  <div class="btn-row">
+    <button id="calibrateBtn" class="secondary">この階の縮尺を設定</button>
+    <button id="clearScaleBtn" class="secondary">縮尺をリセット</button>
+  </div>
+
+  <details id="transformPanel" class="hint" style="background:#eef7f0;">
+    <summary style="cursor:pointer;font-weight:bold;">画像差し替え後の再位置合わせ</summary>
+    <div style="margin:6px 0 4px;">画像を差し替えても、この階のノード配置を比率のまま拡大縮小・移動して合わせられます。</div>
+    <div class="btn-row" style="margin-top:0;">
+      <button id="selectFloorNodesBtn" class="secondary">この階のノードを全選択</button>
+    </div>
+    <div style="margin:6px 0 2px;">
+      倍率(%)
+      <input type="text" id="transformRatio" value="100" style="width:70px;display:inline-block;margin:0;">
+      基準
+      <select id="transformAnchor" style="width:auto;display:inline-block;margin:0;">
+        <option value="centroid">選択の重心</option>
+        <option value="origin">画像左上(0,0)</option>
+        <option value="custom">指定点(クリック)</option>
+      </select>
+    </div>
+    <div class="btn-row" style="margin-top:0;">
+      <button id="pickAnchorBtn" class="secondary">基準点をクリックで指定</button>
+    </div>
+    <div style="margin:6px 0 2px;">
+      移動X
+      <input type="text" id="transformDx" value="0" style="width:60px;display:inline-block;margin:0;">
+      移動Y
+      <input type="text" id="transformDy" value="0" style="width:60px;display:inline-block;margin:0;">
+    </div>
+    <label class="chain-toggle" style="margin:6px 0;">
+      <input type="checkbox" id="transformScaleToggle" checked>
+      縮尺(px/m)も同じ倍率で更新する
+    </label>
+    <label class="chain-toggle" style="margin:0 0 6px;">
+      <input type="checkbox" id="transformZonesToggle" checked>
+      規制エリア(区画)も一緒に変換する
+    </label>
+    <div class="btn-row" style="margin-top:0;">
+      <button id="applyTransformBtn">適用</button>
+    </div>
+    <div id="transformInfo" style="font-size:11px;color:#5f5e5a;"></div>
+  </details>
+
+  <div class="mode-btns">
+    <button id="modeNode" class="active">① ノード追加</button>
+    <button id="modeEdge">② エッジ接続</button>
+    <button id="modeZone">③ 規制エリア</button>
+    <button id="modeRoute">④ 経路テスト</button>
+  </div>
+
+  <div id="multiSelectPanel" class="hint" style="display:none; background:#fff4e0;"></div>
+
+  <div id="edgeOptions">
+    <label class="chain-toggle">
+      <input type="checkbox" id="chainMode" checked>
+      連鎖接続モード(クリックし続けて数珠つなぎ)
+    </label>
+    <label class="chain-toggle">
+      <input type="checkbox" id="crossFloorMode">
+      階またぎ接続モード(別の階のノードとも接続可能にする)
+    </label>
+  </div>
+
+  <div id="zoneOptions" style="display:none;">
+    <div class="btn-row">
+      <button id="zoneFinishBtn">区画を確定(3点以上)</button>
+      <button id="zoneUndoPointBtn" class="secondary">最後の点を取消</button>
+      <button id="zoneClearBtn" class="secondary">下書き全クリア</button>
+    </div>
+  </div>
+
+  <div id="routeOptions" class="hint" style="display:none; background:#eaf2fa;"></div>
+
+  <div class="hint" id="hintText"></div>
+  <div class="hint" style="background:#eaf2fa;">
+    表示操作: マウスホイールで拡大縮小 / <b>スペースキーを押しながらドラッグ</b>で画面移動（右クリックドラッグでも可）<br>
+    選択/削除: ノード・エッジをクリックで選択(黒枠で強調)→<b>Delete/Backspaceキー</b>で削除
+  </div>
+
+  <label class="chain-toggle">
+    <input type="checkbox" id="labelToggle" checked>
+    ノード名ラベルを表示する
+  </label>
+
+  <div id="undoBtnRow"><button id="undoBtn">元に戻す (Ctrl+Z)</button></div>
+
+  <div id="status">準備完了</div>
+
+  <div class="legend">
+    <span><i style="background:#534AB7"></i>分岐点(丸)</span>
+    <span><i style="background:#185fa5"></i>部屋(四角)</span>
+    <span><i style="background:#3B6D11"></i>出入口(三角)</span>
+    <span><i style="background:#854F0B"></i>階段/EV(ひし形)</span>
+    <span><i style="background:#0097A7"></i>トイレ(六角形)</span>
+    <span><i style="background:#D85A30"></i>展示場所(星)</span>
+  </div>
+</div>
+
+<div id="sidebarScroll">
+  <h3>ノード一覧 <span class="count-badge" id="nodeCount">0</span></h3>
+  <div id="typeSummary"></div>
+  <input type="text" id="nodeSearch" placeholder="ノード名/IDで検索...">
+  <ul id="nodelist"></ul>
+
+  <h3>エッジ一覧 <span class="count-badge" id="edgeCount">0</span></h3>
+  <ul id="edgelist"></ul>
+
+  <h3>規制エリア一覧 <span class="count-badge" id="zoneCount">0</span></h3>
+  <ul id="zonelist"></ul>
+
+  <div class="btn-row">
+    <button id="exportBtn">JSON書き出し</button>
+    <button id="importBtn" class="secondary">JSON読み込み</button>
+  </div>
+  <div class="btn-row">
+    <button id="resetAllBtn" class="danger">全データ消去</button>
+  </div>
+  <input type="file" id="importFile" style="display:none" accept=".json">
+</div>
+</div>
+
+<div id="mainarea">
+  <div class="zoom-controls">
+    <button id="zoomIn">＋</button>
+    <div id="zoomLabel">100%</div>
+    <button id="zoomOut">－</button>
+    <button id="zoomReset">全体表示</button>
+  </div>
+  <div id="mainViewport">
+    <div id="imgwrap">
+      <img id="floorImg" src="">
+      <svg id="overlay"></svg>
+    </div>
+  </div>
+</div>
+
+<script src="data/floor-images.js"></script>
+<script src="js/state.js"></script>
+<script src="js/init.js"></script>
+<script src="js/mode.js"></script>
+<script src="js/floors.js"></script>
+<script src="js/viewport.js"></script>
+<script src="js/canvas-actions.js"></script>
+<script src="js/nodes-edges.js"></script>
+<script src="js/images.js"></script>
+<script src="js/scale-zones.js"></script>
+<script src="js/floor-transform.js"></script>
+<script src="js/routing.js"></script>
+<script src="js/history-keyboard.js"></script>
+<script src="js/svg-shapes.js"></script>
+<script src="js/render.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
