@@ -18,6 +18,8 @@ function undo() {
 // キーを押しっぱなしにして何度もnudgeしても、Ctrl+Zは「動かす前」に1回で戻る。
 let nudgeHistoryPushed = false;
 let nudgeKeyupHandlerAttached = false;
+let zoneNudgeHistoryPushed = false;
+let zoneNudgeKeyupHandlerAttached = false;
 
 function setupKeyboardShortcuts() {
   window.addEventListener('keydown', (e) => {
@@ -29,7 +31,44 @@ function setupKeyboardShortcuts() {
     }
 
     if (!typing && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
-      const hasTarget = selectedNodeIds.length || selectedListNodeId;
+      const hasNodeTarget = selectedNodeIds.length || selectedListNodeId;
+      // 規制エリア移動モードで区画を選んでいるときは、その区画を動かす(Shiftで10px)
+      if (!hasNodeTarget && zoneMoveMode && selectedZoneId) {
+        const z = zones.find(zz => zz.id === selectedZoneId);
+        if (!z) return;
+        e.preventDefault();
+        if (!zoneNudgeHistoryPushed) {
+          pushHistory();
+          zoneNudgeHistoryPushed = true;
+        }
+        const mult = e.shiftKey ? 10 : 1;
+        const step = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0] }[e.key];
+        const vi = selectedZoneVertexIndex;
+        const vertex = vi >= 0 ? z.points[vi] : null;
+        if (vi >= 0 && !vertex) selectedZoneVertexIndex = -1;
+        if (vertex) {
+          vertex.x += step[0] * mult;
+          vertex.y += step[1] * mult;
+          renderAll();
+          renderStatus(`区画「${z.label}」の頂点${vi + 1}を移動しました(${step[0] * mult}, ${step[1] * mult})`);
+        } else {
+          z.points = z.points.map(p => ({ x: p.x + step[0] * mult, y: p.y + step[1] * mult }));
+          renderAll();
+          renderStatus(`区画「${z.label}」を移動しました(${step[0] * mult}, ${step[1] * mult})`);
+        }
+        if (!zoneNudgeKeyupHandlerAttached) {
+          zoneNudgeKeyupHandlerAttached = true;
+          window.addEventListener('keyup', function onZoneNudgeKeyup(ev) {
+            if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(ev.key)) {
+              zoneNudgeHistoryPushed = false;
+              zoneNudgeKeyupHandlerAttached = false;
+              window.removeEventListener('keyup', onZoneNudgeKeyup);
+            }
+          });
+        }
+        return;
+      }
+      const hasTarget = hasNodeTarget;
       if (!hasTarget) return;
       e.preventDefault();
       if (!nudgeHistoryPushed) {
@@ -71,6 +110,22 @@ function setupKeyboardShortcuts() {
     }
 
     if (!typing && e.key === 'Escape') {
+      if (midpointPickMode) {
+        e.preventDefault();
+        cancelMidpointMovePick();
+        return;
+      }
+      if (zoneMoveMode) {
+        e.preventDefault();
+        if (selectedZoneVertexIndex >= 0) {
+          selectedZoneVertexIndex = -1;
+          renderOverlay();
+          renderStatus('頂点の選択を解除しました');
+        } else {
+          toggleZoneMoveMode();
+        }
+        return;
+      }
       if (transformPickMode) {
         e.preventDefault();
         transformPickMode = false;

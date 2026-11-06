@@ -15,9 +15,13 @@ function startNodeDrag(n, ev) {
 }
 function onNodeDragMove(ev) {
   if (!dragState) return;
-  const dx = (ev.clientX - dragState.startClientX) / zoom;
-  const dy = (ev.clientY - dragState.startClientY) / zoom;
-  if (!dragState.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+  // ドラッグ開始の判定は「画面上のpx」で行う(高倍率でも少し動かせばドラッグになるように)
+  const screenDx = ev.clientX - dragState.startClientX;
+  const screenDy = ev.clientY - dragState.startClientY;
+  // 実際の移動量は画像座標系
+  const dx = screenDx / zoom;
+  const dy = screenDy / zoom;
+  if (!dragState.moved && (Math.abs(screenDx) > 3 || Math.abs(screenDy) > 3)) {
     pushHistory();
     dragState.moved = true;
   }
@@ -33,11 +37,20 @@ function onNodeDragMove(ev) {
         dragState.origPositions[id] = { x: n.x, y: n.y };
       });
     }
+    // 格子ON時は「掴んだノード」を格子点に吸着させ、その移動量を全員に適用する
+    // (複数選択時も相対位置が崩れない)
+    let moveX = dx, moveY = dy;
+    if (gridVisible) {
+      const o = dragState.origPositions[dragState.nodeId];
+      const s = snapPoint(o.x + dx, o.y + dy);
+      moveX = s.x - o.x;
+      moveY = s.y - o.y;
+    }
     targets.forEach(id => {
       const n = nodes.find(nn => nn.id === id);
       const orig = dragState.origPositions[id];
-      n.x = Math.round(orig.x + dx);
-      n.y = Math.round(orig.y + dy);
+      n.x = Math.round(orig.x + moveX);
+      n.y = Math.round(orig.y + moveY);
     });
     renderOverlay();
   }
@@ -47,6 +60,13 @@ function onNodeDragEnd() {
   window.removeEventListener('mousemove', onNodeDragMove);
   window.removeEventListener('mouseup', onNodeDragEnd);
   if (!dragState.moved) {
+    // 整列の基準ノード選択待ち: 選択中のノードを地図上でクリックしたら、それを基準にする
+    if (pendingAlignAxis && selectedNodeIds.includes(dragState.nodeId)) {
+      const baseId = dragState.nodeId;
+      dragState = null;
+      alignPickBase(baseId);
+      return;
+    }
     if (dragState.multiKey) {
       // Ctrl/Cmd+クリック: 複数選択のトグル
       const idx = selectedNodeIds.indexOf(dragState.nodeId);
@@ -66,6 +86,7 @@ function onNodeDragEnd() {
     }
     renderNodeList();
     renderOverlay();
+    renderMultiSelectPanel();
   } else {
     renderStatus('ノードを移動しました');
     renderAll();
@@ -148,8 +169,10 @@ function deleteEdge(id) {
 function clearMultiSelection() {
   if (!selectedNodeIds.length) return;
   selectedNodeIds = [];
+  pendingAlignAxis = null;
   renderNodeList();
   renderOverlay();
+  renderMultiSelectPanel();
 }
 
 function deleteSelectedNodes() {
@@ -168,13 +191,91 @@ function deleteSelectedNodes() {
 }
 
 /**
+ * 格子2マスの中点へノードを移動するモードを開始する。
+ * 先に移動したいノードを1つ選択しておき、地図上で格子のマスを2つクリックする。
+ */
+function startMidpointMovePick() {
+  if (midpointPickMode) { cancelMidpointMovePick(); return; }
+  if (!gridVisible || !(gridSize > 0)) {
+    renderStatus('先に「格子を表示」をONにしてください(マスの区切りに使います)');
+    return;
+  }
+  const targetId = selectedNodeIds.length
+    ? selectedNodeIds[selectedNodeIds.length - 1]
+    : selectedListNodeId;
+  const target = targetId ? nodes.find(n => n.id === targetId) : null;
+  if (!target) {
+    renderStatus('先に移動するノードを1つ選択してください(地図上または一覧でクリック)');
+    return;
+  }
+  // 他のクリック指定モードとは排他
+  transformPickMode = false;
+  zoneMoveMode = false;
+  midpointPickMode = true;
+  midpointPickCells = [];
+  midpointTargetId = target.id;
+  updateMidpointMoveUI();
+  renderAll();
+  renderStatus(`「${target.name}」を移動します。1つ目の格子マスをクリックしてください(Escでキャンセル)`);
+}
+
+function cancelMidpointMovePick() {
+  midpointPickMode = false;
+  midpointPickCells = [];
+  midpointTargetId = null;
+  updateMidpointMoveUI();
+  renderOverlay();
+  renderStatus('中点への移動をキャンセルしました');
+}
+
+/** 画像座標が属する格子マスの中心を返す */
+function gridCellAt(x, y) {
+  const g = gridSize;
+  const i = Math.floor(x / g);
+  const j = Math.floor(y / g);
+  return { i, j, x: (i + 0.5) * g, y: (j + 0.5) * g };
+}
+
+/** 中点指定モード中に地図上をクリックしたときの処理 */
+function handleMidpointPick(x, y) {
+  if (!midpointPickMode) return;
+  midpointPickCells.push(gridCellAt(x, y));
+
+  if (midpointPickCells.length < 2) {
+    renderOverlay();
+    renderStatus(`1つ目のマス(${midpointPickCells[0].i + 1}列, ${midpointPickCells[0].j + 1}行)を選択しました。2つ目のマスをクリックしてください`);
+    return;
+  }
+
+  const [c1, c2] = midpointPickCells;
+  // 2つのマス中心の中点(マスの境界になることもある)
+  const mx = Math.round(((c1.x + c2.x) / 2) * 100) / 100;
+  const my = Math.round(((c1.y + c2.y) / 2) * 100) / 100;
+  const target = nodes.find(n => n.id === midpointTargetId);
+  if (!target) {
+    cancelMidpointMovePick();
+    return;
+  }
+
+  pushHistory();
+  target.x = mx;
+  target.y = my;
+  midpointPickMode = false;
+  midpointPickCells = [];
+  midpointTargetId = null;
+  updateMidpointMoveUI();
+  renderAll();
+  renderStatus(`「${target.name}」を2マスの中点(${mx}, ${my})へ移動しました。Ctrl+Zで戻せます`);
+}
+
+/**
  * 複数選択されたノードを、基準ノードのx(縦整列)またはy(横整列)に揃える。
  * @param {'x'|'y'} axis - 'x'なら基準ノードのx座標に揃えて縦一列に、'y'ならy座標に揃えて横一列にする
  * @param {string} baseNodeId - 基準にするノードのID(選択中のいずれか)
  */
 function alignSelectedNodes(axis, baseNodeId) {
   if (selectedNodeIds.length < 2) {
-    renderStatus('整列するには2つ以上のノードを選択してください(Ctrl/Cmd+クリックで複数選択)');
+    renderStatus('整列するには2つ以上のノードを選択してください(Shift+ドラッグ / Ctrl+クリックで複数選択)');
     return;
   }
   const base = nodes.find(n => n.id === baseNodeId);
@@ -205,4 +306,26 @@ function nudgeSelectedNodes(dx, dy) {
   });
   renderAll();
   return true;
+}
+
+/**
+ * 既存ノードを格子点に吸着させる。
+ * 選択中のノードがあればそれだけ、なければ現在の階の全ノードが対象。
+ */
+function snapTargetNodesToGrid() {
+  if (!gridVisible) {
+    renderStatus('先に「格子を表示」をONにしてください(間隔もそこで設定します)');
+    return;
+  }
+  const targets = selectedNodeIds.length
+    ? nodes.filter(n => selectedNodeIds.includes(n.id))
+    : nodes.filter(n => n.floor === currentFloor);
+  if (!targets.length) { renderStatus('対象ノードがありません'); return; }
+  pushHistory();
+  targets.forEach(n => {
+    const p = snapPoint(n.x, n.y);
+    n.x = p.x; n.y = p.y;
+  });
+  renderAll();
+  renderStatus(`${targets.length}個のノードを格子(${gridSize}px)に吸着しました。Ctrl+Zで元に戻せます`);
 }

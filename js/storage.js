@@ -2,7 +2,7 @@
 
 function autosave() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges, zones, nodeSeq, edgeSeq, zoneSeq, floorOrder, floorLabels, customImages, floorScale }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges, zones, nodeSeq, edgeSeq, zoneSeq, floorOrder, floorLabels, customImages, floorScale, nodeScale, labelFontSize }));
   } catch (e) {
     renderStatus('自動保存に失敗しました(画像サイズが大きい可能性があります)。念のためJSON書き出しで手動保存してください');
   }
@@ -27,6 +27,8 @@ function tryRestore() {
     if (data.floorLabels) floorLabels = data.floorLabels;
     if (data.customImages) customImages = data.customImages;
     if (data.floorScale) floorScale = data.floorScale;
+    if (typeof data.nodeScale === 'number' && data.nodeScale > 0) nodeScale = data.nodeScale;
+    if (typeof data.labelFontSize === 'number' && data.labelFontSize > 0) labelFontSize = data.labelFontSize;
     return nodes.length > 0 || edges.length > 0 || zones.length > 0 || Object.keys(customImages).length > 0;
   } catch (e) { return false; }
 }
@@ -37,14 +39,25 @@ function resetAll() {
   floorLabels = {...defaultFloorLabels};
   customImages = {};
   floorScale = {};
+  nodeScale = 1;
+  labelFontSize = 11;
+  selectedZoneId = null;
+  zoneMoveMode = false;
+  selectedZoneVertexIndex = -1;
+  midpointPickMode = false;
+  midpointPickCells = [];
+  midpointTargetId = null;
   localStorage.removeItem(STORAGE_KEY);
   renderFloorTabs();
   switchFloor('floor_1F');
+  if (typeof syncSizeControls === 'function') syncSizeControls();
+  if (typeof updateZoneMoveUI === 'function') updateZoneMoveUI();
+  if (typeof updateMidpointMoveUI === 'function') updateMidpointMoveUI();
   renderAll();
   renderStatus('全データを消去しました');
 }
 function exportJson() {
-  const data = { nodes, edges, zones, floorOrder, floorLabels, customImages, floorScale };
+  const data = { nodes, edges, zones, floorOrder, floorLabels, customImages, floorScale, nodeScale, labelFontSize };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -66,13 +79,24 @@ function importJson(e) {
       if (data.floorLabels) floorLabels = data.floorLabels;
       customImages = data.customImages || {};
       floorScale = data.floorScale || {};
+      if (typeof data.nodeScale === 'number' && data.nodeScale > 0) nodeScale = data.nodeScale;
+      if (typeof data.labelFontSize === 'number' && data.labelFontSize > 0) labelFontSize = data.labelFontSize;
       nodeSeq = Math.max(1, ...nodes.map(n => (parseInt(n.id.replace('N','')) || 0) + 1), 1);
       edgeSeq = Math.max(1, ...edges.map(ed => (parseInt(ed.id.replace('E','')) || 0) + 1), 1);
       zoneSeq = Math.max(1, ...zones.map(z => (parseInt(z.id.replace('Z','')) || 0) + 1), 1);
       history = [];
+      selectedZoneId = null;
+      zoneMoveMode = false;
+      selectedZoneVertexIndex = -1;
+      midpointPickMode = false;
+      midpointPickCells = [];
+      midpointTargetId = null;
       renderFloorTabs();
       if (!floorOrder.includes(currentFloor)) currentFloor = floorOrder[0];
       switchFloor(currentFloor);
+      if (typeof syncSizeControls === 'function') syncSizeControls();
+      if (typeof updateZoneMoveUI === 'function') updateZoneMoveUI();
+      if (typeof updateMidpointMoveUI === 'function') updateMidpointMoveUI();
       renderAll();
       renderStatus('読み込み完了');
     } catch (err) {

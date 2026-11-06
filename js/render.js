@@ -28,7 +28,7 @@ function renderMultiSelectPanel() {
   const title = document.createElement('div');
   title.style.cssText = 'font-size:12px;font-weight:bold;margin-bottom:4px;';
   title.textContent = pendingAlignAxis
-    ? `${pendingAlignAxis === 'x' ? '縦整列' : '横整列'}: 基準にするノードをクリック`
+    ? `${pendingAlignAxis === 'x' ? '縦整列' : '横整列'}: 基準にするノードを(地図上 または 下のチップで)クリック`
     : `${selectedNodeIds.length}個のノードを選択中`;
   panel.appendChild(title);
 
@@ -74,7 +74,7 @@ function renderMultiSelectPanel() {
   panel.appendChild(btnRow);
 }
 
-// 整列の基準ノードを選ぶ2段階UI: 「縦/横整列」ボタン押下→基準ノードのチップをクリック、の順で使う。
+// 整列の基準ノードを選ぶ2段階UI: 「縦/横整列」ボタン押下→基準ノード(地図上のノード or チップ)をクリック、の順で使う。
 // pendingAlignAxis が null でない間は「基準ノード選択待ち」の状態。
 let pendingAlignAxis = null;
 
@@ -84,13 +84,49 @@ function requestAlign(axis) {
     return;
   }
   pendingAlignAxis = axis;
-  renderStatus(`${axis === 'x' ? '縦整列' : '横整列'}: 基準にするノードを、上のチップから1つクリックしてください`);
+  renderMultiSelectPanel();
+  renderStatus(`${axis === 'x' ? '縦整列' : '横整列'}: 基準にするノードを、地図上の選択中ノード または パネルのチップからクリックしてください`);
 }
 
 function alignPickBase(nodeId) {
   if (!pendingAlignAxis) return;
-  alignSelectedNodes(pendingAlignAxis, nodeId);
+  // 整列後のrenderAllで「基準選択待ち」表示が残らないよう、先に状態を解除してから実行する
+  const axis = pendingAlignAxis;
   pendingAlignAxis = null;
+  alignSelectedNodes(axis, nodeId);
+}
+
+/* ---------------- 格子 ---------------- */
+
+function renderGrid(svg) {
+  if (!gridVisible || !(gridSize > 0)) return;
+  const img = document.getElementById('floorImg');
+  const W = img.naturalWidth, H = img.naturalHeight;
+  if (!W || !H) return;
+  // 間隔が細かすぎて線が膨大になる場合は描画しない(スナップ自体は有効)
+  if ((W + H) / gridSize > 4000) return;
+
+  let d = '';
+  for (let x = 0; x <= W; x += gridSize) d += `M${x},0V${H}`;
+  for (let y = 0; y <= H; y += gridSize) d += `M0,${y}H${W}`;
+
+  const path = document.createElementNS(svgNS, 'path');
+  path.setAttribute('id', 'gridPath');
+  path.setAttribute('d', d);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#185fa5');
+  path.setAttribute('stroke-opacity', '0.35');
+  svg.appendChild(path);
+  updateGridStyle();
+}
+
+// ズーム倍率に応じて、格子線の太さを「画面上で常に約1px」に保つ。
+// 格子の間隔が画面上で4px未満になる(線が潰れる)ときは非表示にする。
+function updateGridStyle() {
+  const path = document.getElementById('gridPath');
+  if (!path) return;
+  path.setAttribute('stroke-width', String(1 / zoom));
+  path.style.display = (gridSize * zoom < 4) ? 'none' : '';
 }
 
 function updatePreviewLine() {
@@ -114,18 +150,31 @@ function updatePreviewLine() {
 function renderOverlay() {
   const svg = document.getElementById('overlay');
   svg.innerHTML = '';
+  renderGrid(svg);   // 最背面に格子を描く
   const floorNodes = nodes.filter(n => n.floor === currentFloor);
   const floorNodeIds = new Set(floorNodes.map(n => n.id));
 
   // 規制エリア(区画)描画
   zones.filter(z => z.floor === currentFloor).forEach(z => {
+    const isSelZone = selectedZoneId === z.id;
     const poly = document.createElementNS(svgNS, 'polygon');
     poly.setAttribute('points', z.points.map(p => `${p.x},${p.y}`).join(' '));
     poly.setAttribute('fill', '#E24B4A');
-    poly.setAttribute('fill-opacity', '0.14');
-    poly.setAttribute('stroke', '#E24B4A');
-    poly.setAttribute('stroke-width', '2.5');
+    poly.setAttribute('fill-opacity', isSelZone ? '0.24' : '0.14');
+    poly.setAttribute('stroke', isSelZone ? '#7A1F1F' : '#E24B4A');
+    poly.setAttribute('stroke-width', isSelZone ? '4' : '2.5');
     poly.setAttribute('stroke-dasharray', '8 5');
+    if (zoneMoveMode) {
+      poly.style.pointerEvents = 'all';
+      poly.style.cursor = 'move';
+      poly.addEventListener('mousedown', (ev) => {
+        if (isSpaceDown || ev.button !== 0) return; // スペース+ドラッグの画面移動は邪魔しない
+        ev.stopPropagation();
+        ev.preventDefault();
+        startZoneDrag(z, ev);
+      });
+      poly.addEventListener('click', (ev) => ev.stopPropagation());
+    }
     svg.appendChild(poly);
     const cx = z.points.reduce((s,p)=>s+p.x,0) / z.points.length;
     const cy = z.points.reduce((s,p)=>s+p.y,0) / z.points.length;
@@ -136,6 +185,42 @@ function renderOverlay() {
     label.setAttribute('stroke', '#fff'); label.setAttribute('stroke-width', '3'); label.setAttribute('paint-order', 'stroke');
     label.textContent = z.label;
     svg.appendChild(label);
+
+    // 移動モードで選択中の区画は、頂点を個別にドラッグできるハンドルを表示する
+    if (zoneMoveMode && isSelZone) {
+      const hr = 8 / zoom;  // 画面上で約16px
+      z.points.forEach((p, idx) => {
+        const handle = document.createElementNS(svgNS, 'circle');
+        const isSelVertex = idx === selectedZoneVertexIndex;
+        handle.setAttribute('cx', p.x); handle.setAttribute('cy', p.y);
+        handle.setAttribute('r', hr);
+        handle.setAttribute('fill', isSelVertex ? '#E8843A' : '#fff');
+        handle.setAttribute('stroke', isSelVertex ? '#7A1F1F' : '#A32D2D');
+        handle.setAttribute('stroke-width', String(2 / zoom));
+        handle.style.pointerEvents = 'all';
+        handle.style.cursor = 'grab';
+        handle.addEventListener('mousedown', (ev) => {
+          if (isSpaceDown || ev.button !== 0) return;
+          ev.stopPropagation();
+          ev.preventDefault();
+          startZoneVertexDrag(z, idx, ev);
+        });
+        handle.addEventListener('click', (ev) => ev.stopPropagation());
+        svg.appendChild(handle);
+
+        const num = document.createElementNS(svgNS, 'text');
+        num.setAttribute('x', p.x + 10 / zoom);
+        num.setAttribute('y', p.y - 10 / zoom);
+        num.setAttribute('font-size', String(11 / zoom));
+        num.setAttribute('fill', isSelVertex ? '#A35A1E' : '#7A1F1F');
+        num.setAttribute('stroke', '#fff');
+        num.setAttribute('stroke-width', String(3 / zoom));
+        num.setAttribute('paint-order', 'stroke');
+        num.textContent = String(idx + 1);
+        num.style.pointerEvents = 'none';
+        svg.appendChild(num);
+      });
+    }
   });
 
   // 区画下書き中の頂点
@@ -176,6 +261,35 @@ function renderOverlay() {
       line.setAttribute('stroke', '#E8B830'); line.setAttribute('stroke-width', '3'); line.setAttribute('stroke-dasharray', '4 3');
       svg.appendChild(line);
     }
+  }
+
+  // 格子2マスの中点指定中のマス表示
+  if (midpointPickMode && midpointPickCells.length) {
+    const g = gridSize;
+    midpointPickCells.forEach((c, i) => {
+      const cellEl = document.createElementNS(svgNS, 'rect');
+      cellEl.setAttribute('x', c.x - g / 2);
+      cellEl.setAttribute('y', c.y - g / 2);
+      cellEl.setAttribute('width', g);
+      cellEl.setAttribute('height', g);
+      cellEl.setAttribute('fill', '#E8843A');
+      cellEl.setAttribute('fill-opacity', '0.18');
+      cellEl.setAttribute('stroke', '#E8843A');
+      cellEl.setAttribute('stroke-width', String(2 / zoom));
+      cellEl.setAttribute('stroke-dasharray', '6 4');
+      svg.appendChild(cellEl);
+      const num = document.createElementNS(svgNS, 'text');
+      num.setAttribute('x', c.x);
+      num.setAttribute('y', c.y + 6 / zoom);
+      num.setAttribute('font-size', String(16 / zoom));
+      num.setAttribute('text-anchor', 'middle');
+      num.setAttribute('fill', '#A35A1E');
+      num.setAttribute('stroke', '#fff');
+      num.setAttribute('stroke-width', String(3 / zoom));
+      num.setAttribute('paint-order', 'stroke');
+      num.textContent = String(i + 1);
+      svg.appendChild(num);
+    });
   }
 
   // 再位置合わせの基準点(指定時のみ)
@@ -220,12 +334,11 @@ function renderOverlay() {
     hit.setAttribute('x2', b.x); hit.setAttribute('y2', b.y);
     hit.setAttribute('stroke', 'transparent');
     hit.setAttribute('stroke-width', '16');
-    hit.style.pointerEvents = 'all';
+    hit.style.pointerEvents = zoneMoveMode ? 'none' : 'all';
     hit.style.cursor = 'pointer';
     hit.addEventListener('click', (ev) => {
-      // 区画下書き中・校正中はエッジ選択より頂点追加を優先:
-      // stopPropagationせずimgwrapのクリック処理に流す
-      if (mode === 'zone' || calibrating) return;
+      // 区画下書き中・校正中・各種クリック指定中はエッジ選択より優先処理に流す
+      if (mode === 'zone' || calibrating || transformPickMode || midpointPickMode || zoneMoveMode) return;
       ev.stopPropagation();
       selectedEdgeId = ed.id;
       selectedListNodeId = null;
@@ -272,25 +385,33 @@ function renderOverlay() {
   floorNodes.forEach(n => {
     const g = document.createElementNS(svgNS, 'g');
     g.setAttribute('class', 'node-dot');
-    g.style.pointerEvents = 'all';
+    g.style.pointerEvents = zoneMoveMode ? 'none' : 'all';
     const isMultiSelected = selectedNodeIds.includes(n.id);
     const isSelected = selectedNodeId === n.id || selectedListNodeId === n.id || isMultiSelected || (mode==='route' && (routeStart===n.id || routeEnd===n.id));
 
     if (isMultiSelected) {
       const ring = document.createElementNS(svgNS, 'circle');
-      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y); ring.setAttribute('r', 11);
+      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y); ring.setAttribute('r', Math.max(8, 11 * nodeScale));
       ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', '#E8843A');
       ring.setAttribute('stroke-width', '2.5');
       g.appendChild(ring);
     }
 
-    const shape = createNodeShapeEl(n, isSelected ? 7 : 5, isSelected);
+    // 小さくしてもクリックしやすいよう、見えない当たり判定を最低限確保する
+    const hitCircle = document.createElementNS(svgNS, 'circle');
+    hitCircle.setAttribute('cx', n.x); hitCircle.setAttribute('cy', n.y);
+    hitCircle.setAttribute('r', Math.max(6, (isSelected ? 7 : 5) * nodeScale));
+    hitCircle.setAttribute('fill', 'transparent');
+    g.appendChild(hitCircle);
+
+    const shape = createNodeShapeEl(n, (isSelected ? 7 : 5) * nodeScale, isSelected);
     g.appendChild(shape);
 
     if (showLabels) {
       const label = document.createElementNS(svgNS, 'text');
-      label.setAttribute('x', n.x + 8); label.setAttribute('y', n.y + 5);
-      label.setAttribute('font-size', '11'); label.setAttribute('fill', '#000');
+      label.setAttribute('x', n.x + (isSelected ? 7 : 5) * nodeScale + 4);
+      label.setAttribute('y', n.y + labelFontSize * 0.45);
+      label.setAttribute('font-size', String(labelFontSize)); label.setAttribute('fill', '#000');
       label.setAttribute('stroke', '#fff'); label.setAttribute('stroke-width', '3'); label.setAttribute('paint-order', 'stroke');
       label.textContent = n.name;
       g.appendChild(label);
@@ -314,14 +435,14 @@ function renderOverlay() {
     }
 
     g.addEventListener('mousedown', (ev) => {
-      // 区画下書き中・校正中・基準点指定中はドラッグ開始せず、imgwrapのクリック処理に流す
-      if (mode === 'zone' || calibrating || transformPickMode) return;
+      // 区画下書き中・校正中・基準点指定中・マス指定中・区画移動中はドラッグ開始せず、imgwrapのクリック処理に流す
+      if (mode === 'zone' || calibrating || transformPickMode || midpointPickMode || zoneMoveMode) return;
       ev.stopPropagation();
       if (mode === 'node') startNodeDrag(n, ev);
     });
     g.addEventListener('click', (ev) => {
-      // 区画下書き中・校正中・基準点指定中は最優先処理に流し、stopPropagationしない
-      if (mode === 'zone' || calibrating || transformPickMode) return;
+      // 区画下書き中・校正中・基準点指定中・マス指定中・区画移動中は最優先処理に流し、stopPropagationしない
+      if (mode === 'zone' || calibrating || transformPickMode || midpointPickMode || zoneMoveMode) return;
       ev.stopPropagation();
       if (mode === 'edge' || mode === 'route') nodeClicked(n);
       // 'node'モードでのクリック選択は onNodeDragEnd 側(mousedown/mouseupベース)で処理する
@@ -402,6 +523,7 @@ function renderNodeList() {
       selectedEdgeId = null;
       renderNodeList();
       renderOverlay();
+      renderMultiSelectPanel();
     };
     ul.appendChild(li);
   });
@@ -456,10 +578,16 @@ function renderZoneList() {
   document.getElementById('zoneCount').textContent = zones.length;
   zones.forEach(z => {
     const li = document.createElement('li');
+    if (selectedZoneId === z.id) li.classList.add('selected');
     const label = document.createElement('span');
     label.textContent = `${z.label}(${floorLabels[z.floor]}, ${z.points.length}点)`;
 
     const right = document.createElement('div');
+    const moveBtn = document.createElement('button');
+    moveBtn.textContent = '編集';
+    moveBtn.style.cssText = 'font-size:11px;margin-right:4px;border:none;border-radius:4px;padding:3px 6px;cursor:pointer;background:#DCE9F7';
+    moveBtn.onclick = (e) => { e.stopPropagation(); beginZoneMove(z.id); };
+
     const blockBtn = document.createElement('button');
     blockBtn.textContent = '通行止めにする';
     blockBtn.style.cssText = 'font-size:11px;margin-right:4px;border:none;border-radius:4px;padding:3px 6px;cursor:pointer;background:#F7C1C1';
@@ -474,7 +602,7 @@ function renderZoneList() {
     delBtn.className = 'del'; delBtn.textContent = '削除'; delBtn.style.cursor = 'pointer';
     delBtn.onclick = (e) => { e.stopPropagation(); deleteZone(z.id); };
 
-    right.appendChild(blockBtn); right.appendChild(releaseBtn); right.appendChild(delBtn);
+    right.appendChild(moveBtn); right.appendChild(blockBtn); right.appendChild(releaseBtn); right.appendChild(delBtn);
     li.appendChild(label); li.appendChild(right);
     li.onclick = () => { if (z.floor !== currentFloor) switchFloor(z.floor); };
     ul.appendChild(li);

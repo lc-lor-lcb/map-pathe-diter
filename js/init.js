@@ -3,6 +3,9 @@
 function init() {
   const restored = tryRestore();
 
+  // will-change: transform が付いていると、高倍率でSVGやラスタ化がぼやけることがあるため外す
+  document.getElementById('imgwrap').style.willChange = 'auto';
+
   renderFloorTabs();
   switchFloor(floorOrder.includes('floor_1F') ? 'floor_1F' : floorOrder[0]);
   setMode('node');
@@ -40,6 +43,49 @@ function init() {
     showLabels = e.target.checked;
     renderOverlay();
   };
+
+  // 格子の表示/スナップ
+  document.getElementById('gridToggle').onchange = (e) => {
+    gridVisible = e.target.checked;
+    renderOverlay();
+    renderStatus(gridVisible
+      ? `格子ON(${gridSize}px): ノード追加・ドラッグ移動・区画頂点が格子点にスナップします`
+      : '格子OFF: スナップも無効です');
+  };
+  document.getElementById('gridSize').onchange = (e) => {
+    const v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 1) {
+      e.target.value = String(gridSize);
+      renderStatus('格子の間隔は1以上の数値で入力してください');
+      return;
+    }
+    gridSize = v;
+    renderOverlay();
+    renderStatus(`格子の間隔を${gridSize}pxにしました`);
+  };
+  document.getElementById('snapNodesBtn').onclick = snapTargetNodesToGrid;
+
+  // ノード図形・ノード名の表示サイズ調整(見た目のみ、Undo対象外)
+  const nodeSizeRange = document.getElementById('nodeSizeRange');
+  const labelSizeRange = document.getElementById('labelSizeRange');
+  nodeSizeRange.oninput = (e) => {
+    nodeScale = Math.max(0.1, Math.min(3, (parseInt(e.target.value, 10) || 100) / 100));
+    document.getElementById('nodeSizeValue').textContent = Math.round(nodeScale * 100) + '%';
+    renderOverlay();
+  };
+  nodeSizeRange.onchange = autosave;
+  labelSizeRange.oninput = (e) => {
+    labelFontSize = Math.max(6, Math.min(48, parseInt(e.target.value, 10) || 11));
+    document.getElementById('labelSizeValue').textContent = Math.round(labelFontSize) + 'px';
+    renderOverlay();
+  };
+  labelSizeRange.onchange = autosave;
+  syncSizeControls();
+
+  document.getElementById('midpointMoveBtn').onclick = startMidpointMovePick;
+  document.getElementById('zoneMoveToggleBtn').onclick = toggleZoneMoveMode;
+  updateMidpointMoveUI();
+  updateZoneMoveUI();
 
   document.getElementById('chainMode').onchange = (e) => { chainMode = e.target.checked; };
   document.getElementById('crossFloorMode').onchange = (e) => {
@@ -83,4 +129,28 @@ function init() {
   if (restored) {
     renderStatus(`前回の続きを自動復元しました(ノード${nodes.length} / エッジ${edges.length} / 区画${zones.length} / 追加画像${Object.keys(customImages).length})`);
   }
+}
+
+// スライダーと数値表示を現在の設定値に合わせる(復元・読み込み・全消去後にも呼ぶ)
+function syncSizeControls() {
+  const nr = document.getElementById('nodeSizeRange');
+  const lr = document.getElementById('labelSizeRange');
+  if (!nr || !lr) return;
+  nr.value = String(Math.round(nodeScale * 100));
+  document.getElementById('nodeSizeValue').textContent = Math.round(nodeScale * 100) + '%';
+  lr.value = String(Math.round(labelFontSize));
+  document.getElementById('labelSizeValue').textContent = Math.round(labelFontSize) + 'px';
+}
+
+// 中点移動ボタンとカーソル表示を現在のモードに合わせる
+function updateMidpointMoveUI() {
+  const btn = document.getElementById('midpointMoveBtn');
+  const vp = document.getElementById('mainViewport');
+  if (btn) {
+    btn.classList.toggle('active', midpointPickMode);
+    btn.textContent = midpointPickMode
+      ? '中点移動中: 格子を2つクリック(Escで中止)'
+      : '選択ノードを格子2マスの中点へ移動';
+  }
+  if (vp) vp.classList.toggle('midpoint-pick', midpointPickMode);
 }

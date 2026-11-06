@@ -67,6 +67,7 @@
     display: flex; justify-content: space-between; align-items: center; cursor: pointer;
   }
   #edgelist li.selected { background: #e6f1fb; }
+  #zonelist li.selected { background: #e6f1fb; }
   .del { color: #A32D2D; font-size: 11px; padding: 2px 6px; cursor: pointer; white-space: nowrap; }
   .tag {
     display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 4px;
@@ -88,6 +89,7 @@
   }
   .btn-row button.secondary { background: #888780; }
   .btn-row button.danger { background: #A32D2D; }
+  .btn-row button.active { background: #1D9E75; color: #fff; }
   #status {
     font-size: 12px; color: #185fa5; padding: 6px 8px; min-height: 18px;
     background: #eaf2fa; border-radius: 6px; margin-bottom: 8px;
@@ -110,6 +112,7 @@
   }
   #mainViewport { position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; cursor: grab; }
   #mainViewport.panning { cursor: grabbing; }
+  #mainViewport.midpoint-pick { cursor: crosshair; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px; font-size: 10.5px; color: #5f5e5a; margin-bottom: 8px; }
   .legend span { display: flex; align-items: center; gap: 3px; }
   .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; }
@@ -125,3 +128,10 @@
   }
   #routeOptions { white-space: pre-line; }
   #scaleInfo { background: #fff4e0; }
+  .size-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .size-label { width: 104px; flex-shrink: 0; }
+  .size-value { width: 44px; flex-shrink: 0; text-align: right; color: #5f5e5a; font-variant-numeric: tabular-nums; }
+  input[type=range] { flex: 1; min-width: 60px; margin: 0; padding: 0; accent-color: #185fa5; }

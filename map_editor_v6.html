@@ -99,13 +99,50 @@
   <div class="hint" id="hintText"></div>
   <div class="hint" style="background:#eaf2fa;">
     表示操作: マウスホイールで拡大縮小 / <b>スペースキーを押しながらドラッグ</b>で画面移動（右クリックドラッグでも可）<br>
-    選択/削除: ノード・エッジをクリックで選択(黒枠で強調)→<b>Delete/Backspaceキー</b>で削除
+    選択/削除: ノード・エッジをクリックで選択(黒枠で強調)→<b>Delete/Backspaceキー</b>で削除<br>
+    複数選択: <b>Shift+ドラッグ</b>で矩形内をまとめて選択 / <b>Ctrl/Cmd+クリック</b>で個別に追加・解除<br>
+    整列: 複数選択→「縦整列/横整列」→基準にするノードを<b>地図上またはチップ</b>でクリック<br>
+    中点: 移動するノードを1つ選択→「格子2マスの中点へ移動」→格子のマスを2つクリック<br>
+    規制エリア: 「規制エリアの移動 / 頂点編集」ON中は本体ドラッグで全体移動、<b>白い丸(頂点)ドラッグで1点だけ移動</b>。頂点は近くの経路ノード/格子に吸着し、矢印キー(Shiftで10px)でも動かせます
   </div>
 
   <label class="chain-toggle">
     <input type="checkbox" id="labelToggle" checked>
     ノード名ラベルを表示する
   </label>
+
+  <div class="chain-toggle" style="flex-wrap:wrap;">
+    <label style="display:flex;align-items:center;gap:6px;">
+      <input type="checkbox" id="gridToggle">
+      格子を表示(ON中はスナップも有効)
+    </label>
+    <span style="margin-left:auto;">
+      間隔
+      <input type="text" id="gridSize" value="20" style="width:52px;display:inline-block;margin:0;padding:3px 6px;">
+      px
+    </span>
+  </div>
+  <div class="btn-row" style="margin-top:0;margin-bottom:8px;">
+    <button id="snapNodesBtn" class="secondary">対象ノードを格子に吸着(選択中、なければこの階の全ノード)</button>
+  </div>
+
+  <div class="size-row">
+    <span class="size-label">ノードの大きさ</span>
+    <input type="range" id="nodeSizeRange" min="10" max="300" step="5" value="100">
+    <span id="nodeSizeValue" class="size-value">100%</span>
+  </div>
+  <div class="size-row" style="margin-bottom:8px;">
+    <span class="size-label">ノード名の大きさ</span>
+    <input type="range" id="labelSizeRange" min="6" max="48" step="1" value="11">
+    <span id="labelSizeValue" class="size-value">11px</span>
+  </div>
+
+  <div class="btn-row" style="margin-top:0;">
+    <button id="midpointMoveBtn" class="secondary">選択ノードを格子2マスの中点へ移動</button>
+  </div>
+  <div class="btn-row" style="margin-top:6px;margin-bottom:8px;">
+    <button id="zoneMoveToggleBtn" class="secondary">規制エリアの移動 / 頂点編集</button>
+  </div>
 
   <div id="undoBtnRow"><button id="undoBtn">元に戻す (Ctrl+Z)</button></div>
 

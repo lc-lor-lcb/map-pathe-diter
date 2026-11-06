@@ -32,6 +32,18 @@ function switchFloor(f) {
     renderOverlay();
   };
   currentZonePoints = [];
+  // 階をまたぐと選択中の区画・中点指定は意味がなくなるので解除する
+  if (selectedZoneId) {
+    const z = zones.find(zz => zz.id === selectedZoneId);
+    if (z && z.floor !== f) selectedZoneId = null;
+  }
+  selectedZoneVertexIndex = -1;
+  if (midpointPickMode) {
+    midpointPickMode = false;
+    midpointPickCells = [];
+    midpointTargetId = null;
+    updateMidpointMoveUI();
+  }
   renderScaleInfo();
   renderStatus();
 }

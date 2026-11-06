@@ -13,6 +13,8 @@ let mode = 'node'; // node | edge | zone | route
 let chainMode = true;
 let crossFloorMode = false;
 
+const ZOOM_MIN = 0.2;
+const ZOOM_MAX = 32;   // 3200%。さらに拡大したい場合はここを増やす
 let zoom = 1, panX = 0, panY = 0;
 let isSpaceDown = false, isPanning = false;
 let panStart = {x:0, y:0, panX:0, panY:0};
@@ -38,6 +40,49 @@ let showLabels = true;
 
 let transformAnchorPoint = null;  // 画像差し替え後の再位置合わせ: 基準点(クリック指定)
 let transformPickMode = false;    // 基準点のクリック待ち
+
+// 格子: 表示ONの間はノード追加・ドラッグ・区画頂点が格子点にスナップする
+let gridVisible = false;
+let gridSize = 20;                // 画像ピクセル単位
+
+// 表示サイズ: ノード図形の倍率(1=標準)と、ノード名ラベルの文字サイズ(画像座標のpx)
+let nodeScale = 1;
+let labelFontSize = 11;
+let rectSelectState = null;       // Shift+ドラッグの矩形選択中のみ値が入る
+
+// 格子2マスの中点へノードを移動するモード
+let midpointPickMode = false;
+let midpointPickCells = [];       // クリックしたマス(中心座標)を最大2つ保持
+let midpointTargetId = null;      // 移動するノード
+
+// 規制エリア(区画)の移動モード
+let zoneMoveMode = false;
+let selectedZoneId = null;
+let selectedZoneVertexIndex = -1;  // 選択中の区画頂点(個別編集用)
+
+function snapPoint(x, y) {
+  if (!gridVisible || !(gridSize > 0)) return { x, y };
+  return {
+    x: Math.round(Math.round(x / gridSize) * gridSize),
+    y: Math.round(Math.round(y / gridSize) * gridSize),
+  };
+}
+
+/**
+ * 近くにある経路ノードを返す(画面上で約12px以内)。
+ * 規制エリアの頂点をノード位置にぴったり合わせるために使う。
+ */
+function snapToNearbyNode(x, y, floorId) {
+  const fl = floorId || currentFloor;
+  const threshold = 12 / zoom;
+  let best = null, bestD = threshold;
+  nodes.forEach(n => {
+    if (n.floor !== fl) return;
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < bestD) { bestD = d; best = n; }
+  });
+  return best ? { x: best.x, y: best.y, node: best } : null;
+}
 
 const typeOptions = [
   {v:'branch', label:'分岐点'},

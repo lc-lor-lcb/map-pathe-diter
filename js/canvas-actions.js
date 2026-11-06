@@ -5,15 +5,35 @@ document.getElementById('mainViewport').addEventListener('mousedown', () => { mo
 document.getElementById('mainViewport').addEventListener('mousemove', () => { if (isPanning) mouseMovedDuringDown = true; });
 
 document.getElementById('imgwrap').addEventListener('click', (e) => {
-  // 区画下書き中・校正中・基準点指定中はノード上でも拾えるようにする
-  if (mode !== 'zone' && !calibrating && !transformPickMode && e.target.closest('.node-dot')) return;
-  if (mouseMovedDuringDown) return;
-  if (isSpaceDown) return;
+  if (mouseMovedDuringDown || isSpaceDown) return;
 
   const viewport = document.getElementById('mainViewport');
   const rect = viewport.getBoundingClientRect();
   const x = Math.round((e.clientX - rect.left - panX) / zoom);
   const y = Math.round((e.clientY - rect.top - panY) / zoom);
+
+  // 区画ドラッグ直後のclickで選択解除しない
+  if (typeof zoneDragSuppressClickUntil === 'number' && performance.now() < zoneDragSuppressClickUntil) {
+    zoneDragSuppressClickUntil = 0;
+    return;
+  }
+
+  // 格子2マスの中点指定中は、ノード上でもマス選択を優先する
+  if (midpointPickMode) { handleMidpointPick(x, y); return; }
+
+  // 規制エリア移動モード中は、空白クリックで区画の選択だけ解除する
+  if (zoneMoveMode) {
+    if (selectedZoneId || selectedZoneVertexIndex >= 0) {
+      selectedZoneId = null;
+      selectedZoneVertexIndex = -1;
+      renderOverlay();
+      renderStatus('区画の選択を解除しました');
+    }
+    return;
+  }
+
+  // 区画下書き中・校正中・基準点指定中はノード上でも拾えるようにする
+  if (mode !== 'zone' && !calibrating && !transformPickMode && e.target.closest('.node-dot')) return;
 
   if (calibrating) { handleCalibrationClick(x, y); return; }
 
@@ -46,10 +66,16 @@ document.getElementById('imgwrap').addEventListener('click', (e) => {
       renderStatus('選択を解除しました');
       return;
     }
-    addNode(x, y);
+    const p = snapPoint(x, y);   // 格子ON時は格子点にスナップ
+    addNode(p.x, p.y);
   } else if (mode === 'zone') {
-    currentZonePoints.push({x, y});
+    // 近くに経路ノードがあればその位置、なければ格子点に合わせる
+    const near = snapToNearbyNode(x, y, currentFloor);
+    const p = near ? { x: near.x, y: near.y } : snapPoint(x, y);
+    currentZonePoints.push({ x: p.x, y: p.y });
     renderOverlay();
-    renderStatus(`区画の頂点を${currentZonePoints.length}個置きました。3点以上で「区画を確定」できます`);
+    renderStatus(`区画の頂点を${currentZonePoints.length}個置きました` +
+      (near ? `(ノード${near.node.name}に吸着)` : '') +
+      `。3点以上で「区画を確定」できます`);
   }
 });

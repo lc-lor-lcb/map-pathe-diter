@@ -2,6 +2,19 @@
 
 function setMode(m) {
   mode = m;
+  // クリック指定系のモードは、モード切替で解除する
+  if (midpointPickMode) {
+    midpointPickMode = false;
+    midpointPickCells = [];
+    midpointTargetId = null;
+    updateMidpointMoveUI();
+  }
+  if (zoneMoveMode) {
+    zoneMoveMode = false;
+    selectedZoneId = null;
+    selectedZoneVertexIndex = -1;
+    updateZoneMoveUI();
+  }
   ['modeNode','modeEdge','modeZone','modeRoute'].forEach(id => {
     document.getElementById(id).classList.toggle('active', id === 'mode' + m.charAt(0).toUpperCase() + m.slice(1));
   });
